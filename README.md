@@ -37,6 +37,7 @@ flutter doctor
 # clone the repo
 git clone <repo-url> && cd tapir
 
+flutter clean
 # install dependencies
 flutter pub get
 

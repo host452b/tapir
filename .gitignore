@@ -50,9 +50,8 @@ app.*.map.json
 # macOS build artifacts
 macos/Flutter/GeneratedPluginRegistrant.swift
 
-# Xcode user data
+# Xcode user data (keep Runner.xcworkspace for CI builds)
 *.xcuserdata
-*.xcworkspace
 xcuserdata/
 
 # Cursor / editor project files
