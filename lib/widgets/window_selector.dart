@@ -381,6 +381,8 @@ class _WindowSelectorState extends State<WindowSelector> {
                   children: [
                     PixelBadge(text: 'PID ${w.pid}', color: RC.neonCyan),
                     PixelBadge(text: 'PPID ${w.parentPid}', color: RC.textDim),
+                    if (!w.isOnScreen)
+                      PixelBadge(text: 'BACKGROUND', color: RC.neonAmber),
                     if (w.childProcessCount > 0)
                       PixelBadge(
                         text: '${w.childProcessCount} CHILD',
@@ -547,7 +549,12 @@ class _WindowRowState extends State<_WindowRow> {
               ),
               const SizedBox(width: 4),
 
-              // compact badges
+              if (!w.isOnScreen)
+                Padding(
+                  padding: const EdgeInsets.only(right: 3),
+                  child: PixelBadge(text: 'BG', color: RC.neonAmber),
+                ),
+
               if (w.childProcessCount > 0)
                 Padding(
                   padding: const EdgeInsets.only(right: 3),

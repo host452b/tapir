@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run analyze
+        run: flutter analyze
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "Tapir" \
+            -srcfolder build/macos/Build/Products/Release/Tapir.app \
+            -ov -format UDZO \
+            Tapir-${{ steps.version.outputs.tag }}.dmg
+
+      - name: Compress .app as ZIP
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r -y "$GITHUB_WORKSPACE/Tapir-${{ steps.version.outputs.tag }}-macOS.zip" Tapir.app
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Tapir ${{ steps.version.outputs.tag }}"
+          generate_release_notes: true
+          files: |
+            Tapir-${{ steps.version.outputs.tag }}.dmg
+            Tapir-${{ steps.version.outputs.tag }}-macOS.zip

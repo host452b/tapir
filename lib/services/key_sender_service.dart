@@ -243,14 +243,20 @@ class KeySenderService {
     }
   }
 
-  /// check if the target window still exists
+  /// check if the target window / process still exists.
+  /// uses window lookup first, then falls back to PID alive check so that
+  /// background, minimized, and other-space windows don't trigger a false alarm.
   Future<void> _validateWindow() async {
     if (_state == SendingState.idle) return;
     if (_targetWindow == null) return;
 
-    final valid = await NativeBridge.isWindowValid(_targetWindow!.windowId);
+    final valid = await NativeBridge.isWindowValid(
+      _targetWindow!.windowId,
+      pid: _targetWindow!.pid,
+    );
     if (!valid) {
-      onLog?.call('warn', 'TARGET LOST: window ${_targetWindow!.windowId} no longer visible');
+      onLog?.call('warn',
+          'TARGET LOST: process ${_targetWindow!.pid} no longer running');
       pause();
       onWindowInvalid?.call();
     }

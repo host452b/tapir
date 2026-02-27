@@ -42,6 +42,9 @@ class KeySenderPlugin {
         case "isWindowValid":
             isWindowValid(call.arguments, result: result)
 
+        case "isProcessAlive":
+            isProcessAlive(call.arguments, result: result)
+
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -101,24 +104,36 @@ class KeySenderPlugin {
 
     // MARK: - window scanning
 
-    /// scan all visible on-screen windows and return their info as a list of dictionaries.
-    /// includes process hierarchy: parentPid, whether it's a child process window,
-    /// and how many sub-process windows exist under the same parent.
+    /// scan ALL windows (including background, minimized, other spaces) and return
+    /// their info as a list of dictionaries.
+    /// includes process hierarchy and an isOnScreen flag so the UI can distinguish
+    /// foreground vs background windows.
     private func getWindows() -> [[String: Any]] {
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+        // fetch ALL windows, not just on-screen ones
+        let allOptions: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+        guard let windowInfoList = CGWindowListCopyWindowInfo(allOptions, kCGNullWindowID)
                 as? [[String: Any]] else {
             return []
         }
 
+        // also fetch on-screen window IDs for the isOnScreen flag
+        let onScreenOptions: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        let onScreenIds: Set<Int>
+        if let onScreenList = CGWindowListCopyWindowInfo(onScreenOptions, kCGNullWindowID)
+                as? [[String: Any]] {
+            onScreenIds = Set(onScreenList.compactMap { $0[kCGWindowNumber as String] as? Int })
+        } else {
+            onScreenIds = []
+        }
+
         let myPid = ProcessInfo.processInfo.processIdentifier
 
-        // phase 1: collect raw window data
         struct RawWindow {
             let windowId: Int
             let ownerName: String
             let windowName: String
             let pid: Int
+            let isOnScreen: Bool
         }
 
         var rawWindows: [RawWindow] = []
@@ -130,12 +145,10 @@ class KeySenderPlugin {
                 continue
             }
 
-            // only layer 0 (normal windows)
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else {
                 continue
             }
 
-            // skip our own app
             if pid == myPid {
                 continue
             }
@@ -150,7 +163,8 @@ class KeySenderPlugin {
                 windowId: windowId,
                 ownerName: ownerName,
                 windowName: windowName,
-                pid: pid
+                pid: pid,
+                isOnScreen: onScreenIds.contains(windowId)
             ))
         }
 
@@ -223,6 +237,7 @@ class KeySenderPlugin {
                 "parentWindowedPid": parentWindowedPid,
                 "childProcessCount": childPids.count,
                 "subWindowCount": subWindowCount,
+                "isOnScreen": raw.isOnScreen,
             ])
         }
 
@@ -478,10 +493,10 @@ class KeySenderPlugin {
         keyUp.postToPid(pid)
     }
 
-    // MARK: - window validation
+    // MARK: - window / process validation
 
-    /// check if a window with the given windowId still exists on screen.
-    /// used to detect when the target window is closed or minimized.
+    /// check if a window with the given windowId still exists (any state: on-screen,
+    /// minimized, other space). falls back to process-alive check via the pid.
     private func isWindowValid(_ arguments: Any?, result: @escaping FlutterResult) {
         guard let args = arguments as? [String: Any],
               let windowId = args["windowId"] as? Int else {
@@ -489,20 +504,39 @@ class KeySenderPlugin {
             return
         }
 
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
-                as? [[String: Any]] else {
-            result(false)
-            return
-        }
+        let pid = args["pid"] as? Int
 
-        for info in windowInfoList {
-            if let wId = info[kCGWindowNumber as String] as? Int, wId == windowId {
-                result(true)
-                return
+        // check all windows (not just on-screen) so minimized / other-space windows pass
+        let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
+        if let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]] {
+            for info in windowInfoList {
+                if let wId = info[kCGWindowNumber as String] as? Int, wId == windowId {
+                    result(true)
+                    return
+                }
             }
         }
 
+        // window not found — fall back to PID alive check.
+        // the process can still receive CGEvents even if its window is gone.
+        if let pid = pid, pid > 0 {
+            let alive = kill(pid_t(pid), 0) == 0
+            result(alive)
+            return
+        }
+
         result(false)
+    }
+
+    /// check if a process with the given pid is still alive.
+    /// uses kill(pid, 0) which sends no signal but checks existence.
+    private func isProcessAlive(_ arguments: Any?, result: @escaping FlutterResult) {
+        guard let args = arguments as? [String: Any],
+              let pid = args["pid"] as? Int, pid > 0 else {
+            result(false)
+            return
+        }
+        result(kill(pid_t(pid), 0) == 0)
     }
 }

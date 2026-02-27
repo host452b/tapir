@@ -19,6 +19,9 @@ class WindowInfo {
   /// how many windows this same pid owns (detects multi-window processes)
   final int subWindowCount;
 
+  /// true if the window is currently visible on screen (not minimized, not on another space)
+  final bool isOnScreen;
+
   const WindowInfo({
     required this.windowId,
     required this.ownerName,
@@ -29,6 +32,7 @@ class WindowInfo {
     this.parentWindowedPid = 0,
     this.childProcessCount = 0,
     this.subWindowCount = 1,
+    this.isOnScreen = true,
   });
 
   /// create from the dictionary returned by the native method channel.
@@ -43,6 +47,7 @@ class WindowInfo {
       parentWindowedPid: map['parentWindowedPid'] as int? ?? 0,
       childProcessCount: map['childProcessCount'] as int? ?? 0,
       subWindowCount: map['subWindowCount'] as int? ?? 1,
+      isOnScreen: map['isOnScreen'] as bool? ?? true,
     );
   }
 

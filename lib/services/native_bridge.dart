@@ -113,11 +113,24 @@ class NativeBridge {
     }
   }
 
-  /// check if a window with the given id still exists on screen.
-  static Future<bool> isWindowValid(int windowId) async {
+  /// check if a window with the given id still exists (any state).
+  /// also checks process alive as fallback when the window is gone.
+  static Future<bool> isWindowValid(int windowId, {int? pid}) async {
     try {
-      final result = await _channel.invokeMethod('isWindowValid', {
-        'windowId': windowId,
+      final args = <String, dynamic>{'windowId': windowId};
+      if (pid != null) args['pid'] = pid;
+      final result = await _channel.invokeMethod('isWindowValid', args);
+      return result == true;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// check if a process with the given pid is still running.
+  static Future<bool> isProcessAlive(int pid) async {
+    try {
+      final result = await _channel.invokeMethod('isProcessAlive', {
+        'pid': pid,
       });
       return result == true;
     } on PlatformException {
