@@ -15,54 +15,57 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          channel: stable
-          cache: true
+          node-version: 20
+          cache: npm
 
-      - name: Enable macOS desktop
-        run: flutter config --enable-macos-desktop
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
-      - name: Run analyze
-        run: flutter analyze --no-fatal-infos
-
-      - name: Build macOS release
-        run: flutter build macos --release
+      - name: Install frontend dependencies
+        run: npm ci
 
       - name: Extract version from tag
         id: version
         run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
+      - name: Build Tauri app
+        run: npx tauri build
+
       - name: Verify build output
         run: |
-          APP_PATH="build/macos/Build/Products/Release/Tapir.app"
+          APP_PATH="src-tauri/target/release/bundle/macos/Tapir.app"
+          DMG_PATH="src-tauri/target/release/bundle/dmg"
           if [ ! -d "$APP_PATH" ]; then
-            echo "::error::build output not found at $APP_PATH"
+            echo "::error::Tapir.app not found at $APP_PATH"
             exit 1
           fi
-          echo "build output verified: $APP_PATH"
+          echo "Tapir.app verified"
           ls -lh "$APP_PATH"
+          ls -lh "$DMG_PATH"/*.dmg || true
 
-      - name: Create DMG
+      - name: Rename DMG with version
         run: |
-          hdiutil create -volname "Tapir" \
-            -srcfolder build/macos/Build/Products/Release/Tapir.app \
-            -ov -format UDZO \
-            Tapir-${{ steps.version.outputs.tag }}.dmg
+          DMG_SRC=$(ls src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          cp "$DMG_SRC" "Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.dmg"
 
       - name: Compress .app as ZIP
         run: |
-          cd build/macos/Build/Products/Release
-          zip -r -y "$GITHUB_WORKSPACE/Tapir-${{ steps.version.outputs.tag }}-macOS.zip" Tapir.app
+          cd src-tauri/target/release/bundle/macos
+          zip -r -y "$GITHUB_WORKSPACE/Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.zip" Tapir.app
 
       - name: Generate checksums
         run: |
-          shasum -a 256 Tapir-${{ steps.version.outputs.tag }}.dmg \
-                        Tapir-${{ steps.version.outputs.tag }}-macOS.zip \
+          shasum -a 256 \
+            Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.dmg \
+            Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.zip \
             > checksums-sha256.txt
           echo "--- SHA-256 checksums ---"
           cat checksums-sha256.txt
@@ -71,8 +74,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: "Tapir ${{ steps.version.outputs.tag }}"
-          generate_release_notes: true
+          body: |
+            ## Tapir ${{ steps.version.outputs.tag }}
+
+            macOS keyboard automation tool — send automated key events to any target window.
+
+            **Built with:** Tauri v2 (Rust) + React + TypeScript
+            **Requires:** macOS 14.0+ (Sonoma)
+            **Sandbox:** Enabled (App Store compatible)
+
+            ### Install
+            1. Download `.dmg`, open it, drag `Tapir.app` to Applications
+            2. On first launch: System Settings → Privacy & Security → Accessibility → enable Tapir
           files: |
-            Tapir-${{ steps.version.outputs.tag }}.dmg
-            Tapir-${{ steps.version.outputs.tag }}-macOS.zip
+            Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.dmg
+            Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.zip
             checksums-sha256.txt
