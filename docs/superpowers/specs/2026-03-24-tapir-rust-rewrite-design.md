@@ -83,6 +83,13 @@ tapir-rs/
 │   │       ├── PixelPanel.tsx
 │   │       ├── PixelButton.tsx
 │   │       ├── PixelBadge.tsx
+│   │       ├── PixelToggle.tsx
+│   │       ├── PixelDropdown.tsx
+│   │       ├── PixelInput.tsx
+│   │       ├── SegmentButton.tsx
+│   │       ├── IntervalProgressBar.tsx
+│   │       ├── RepeatModeStrip.tsx
+│   │       ├── FlowLayout.tsx
 │   │       └── PixelDivider.tsx
 │   ├── hooks/
 │   │   ├── useAppState.ts
@@ -117,8 +124,24 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"          # CancellationToken
 core-graphics = "0.24"      # CGEvent, CGWindowList
 core-foundation = "0.10"    # CFString, CFArray, CFDictionary
+objc2 = "0.6"               # NSRunningApplication, NSWorkspace
+objc2-app-kit = "0.3"       # AppKit bindings
 libc = "0.2"                # sysctl, kill(pid,0)
 ```
+
+### Manual FFI Bindings Required
+
+The `core-graphics` crate does not expose everything needed. These must be hand-written as unsafe FFI, encapsulated inside `core/`:
+
+| Function | Crate Status | Action |
+|----------|-------------|--------|
+| `CGEvent::post(tap: .cghidEventTap)` | Not in crate | Manual FFI via `CGEventPost` C function |
+| `CGEvent::keyboardSetUnicodeString()` | Not in crate | Manual FFI |
+| `CGWindowListCopyWindowInfo()` return parsing | Partial | Manual CFDictionary value extraction |
+| `AXIsProcessTrusted()` | Not in core-graphics | Manual FFI, lives in ApplicationServices |
+| `AXIsProcessTrustedWithOptions()` | Not in core-graphics | Manual FFI |
+| `NSRunningApplication.activate()` | Use `objc2-app-kit` | Available via objc2 bindings |
+| `NSWorkspace.open(URL)` | Use `objc2-app-kit` | Available via objc2 bindings |
 
 ### core/key_sender.rs — Key Event Synthesis
 
@@ -127,7 +150,7 @@ Three sending modes matching StepMode:
 ```rust
 pub async fn send_key(pid: i32, key_code: u16, modifiers: Vec<Modifier>) -> Result<()>
 pub async fn send_text(pid: i32, text: &str, append_enter: bool) -> Result<()>
-pub async fn send_combo(pid: i32, text: &str, prefix: Option<u16>, suffix: Option<u16>) -> Result<()>
+pub async fn send_combo(pid: i32, text: &str, prefix_key_code: Option<u16>, suffix_key_code: Option<u16>) -> Result<(), TapirError>
 ```
 
 **Sandbox adaptation**: Instead of `CGEvent.postToPid()` (blocked in sandbox):
@@ -135,7 +158,11 @@ pub async fn send_combo(pid: i32, text: &str, prefix: Option<u16>, suffix: Optio
 2. Send via `CGEvent.post(.cghidEventTap)` to HID event stream (frontmost window receives)
 3. Optionally switch back to Tapir window after sequence completes
 
-Timing: 5-8ms inter-character delay, user-configurable step interval (100ms - 10,000,000ms).
+**Timing (matches existing SwiftUI implementation)**:
+- `send_key`: 5ms keyDown-to-keyUp delay
+- `send_text`: 5ms keyDown-to-keyUp + 8ms inter-character delay; optional Enter at end
+- `send_combo`: 30ms post-prefix delay → 5ms+8ms per character → 20ms pre-suffix delay
+- Step interval: user-configurable (100ms - 10,000,000ms)
 
 ### core/window_scanner.rs — Window Discovery
 
@@ -144,9 +171,10 @@ pub fn scan_windows() -> Result<Vec<WindowInfo>>
 ```
 
 - `CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID)` for all windows
+- Filter to `kCGWindowLayer == 0` (normal windows only, excludes menu bar, overlays)
 - Single-pass `sysctl(KERN_PROC_ALL)` to build process parent-child tree
 - Filters out Tapir's own PID and desktop elements (WindowServer, Dock)
-- Returns `Vec<WindowInfo>` with hierarchy: parent PID, child count, sub-window count
+- Returns `Vec<WindowInfo>` with hierarchy: parent PID, parent windowed PID, child count, sub-window count
 
 ### core/accessibility.rs — Permission Management
 
@@ -161,9 +189,29 @@ FFI to `AXIsProcessTrusted()`, `AXIsProcessTrustedWithOptions()`, and `NSWorkspa
 ### core/process.rs — Process Validation
 
 ```rust
-pub fn is_process_alive(pid: i32) -> bool   // kill(pid, 0)
-pub fn is_window_valid(window_id: u32, pid: i32) -> bool
+pub fn is_process_alive(pid: i32) -> bool       // kill(pid, 0)
+pub fn is_window_valid(window_id: u32, pid: i32) -> bool  // CGWindowList check, fallback to kill(pid, 0)
 ```
+
+### Error Model
+
+```rust
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum TapirError {
+    NoPermission,
+    EventCreationFailed(String),
+    InvalidTarget(i32),         // PID
+    NoStepsConfigured,
+    WindowScanFailed(String),
+    SendFailed(String),
+}
+
+impl std::fmt::Display for TapirError { ... }
+impl std::error::Error for TapirError {}
+```
+
+All Tauri commands return `Result<T, TapirError>`. Tauri serializes errors as rejected promises on the frontend. Frontend catches via `invoke(...).catch(err => ...)` where `err` is the `TapirError` variant.
 
 ### core/key_codes.rs — macOS CGKeyCode Mapping
 
@@ -203,7 +251,7 @@ impl SenderManager {
 #[tauri::command] fn request_permission() -> bool
 #[tauri::command] fn open_settings()
 #[tauri::command] fn scan_windows() -> Vec<WindowInfo>
-#[tauri::command] fn validate_windows(pids: Vec<i32>) -> Vec<i32>
+#[tauri::command] fn validate_windows(windows: Vec<(u32, i32)>) -> Vec<i32>  // (window_id, pid) → alive PIDs
 #[tauri::command] fn start_sending(targets: Vec<WindowInfo>, steps: Vec<KeyStep>, interval_ms: u64, repeat_count: Option<u64>)
 #[tauri::command] fn pause_sending()
 #[tauri::command] fn resume_sending()
@@ -244,8 +292,11 @@ pub struct KeyStep {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum StepMode { Key, Text, Combo }
 ```
+
+Note: All Rust enums use `#[serde(rename_all = "lowercase")]` so they serialize as `"key"`, `"text"`, `"combo"`, `"idle"`, `"running"`, `"paused"` — matching TypeScript string literals.
 
 ### WindowInfo
 
@@ -257,6 +308,7 @@ pub struct WindowInfo {
     pub window_name: String,
     pub pid: i32,
     pub parent_pid: i32,
+    pub parent_windowed_pid: i32,   // PID of nearest ancestor with windows
     pub is_child_process: bool,
     pub child_process_count: u32,
     pub sub_window_count: u32,
@@ -287,8 +339,69 @@ pub struct SenderStatus {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
 pub enum SendingState { Idle, Running, Paused }
 ```
+
+### TypeScript Types (src/types/models.ts)
+
+```typescript
+export type StepMode = 'key' | 'text' | 'combo'
+
+export interface KeyStep {
+  id: string
+  mode: StepMode
+  keyName: string
+  withCommand: boolean
+  withShift: boolean
+  withOption: boolean
+  withControl: boolean
+  textContent: string
+  appendEnter: boolean
+  hasPrefixKey: boolean
+  prefixKeyName: string
+  hasSuffixKey: boolean
+  suffixKeyName: string
+}
+
+export interface WindowInfo {
+  id: number
+  ownerName: string
+  windowName: string
+  pid: number
+  parentPid: number
+  parentWindowedPid: number
+  isChildProcess: boolean
+  childProcessCount: number
+  subWindowCount: number
+  isOnScreen: boolean
+}
+
+export interface LogEntry {
+  id: string
+  timestamp: string
+  entryType: string  // 'key' | 'state' | 'error' | 'warn'
+  message: string
+}
+
+export type SendingState = 'idle' | 'running' | 'paused'
+
+export interface SenderStatus {
+  state: SendingState
+  sendCount: number
+  cyclesCompleted: number
+}
+
+export type TapirError =
+  | { type: 'noPermission' }
+  | { type: 'eventCreationFailed'; message: string }
+  | { type: 'invalidTarget'; pid: number }
+  | { type: 'noStepsConfigured' }
+  | { type: 'windowScanFailed'; message: string }
+  | { type: 'sendFailed'; message: string }
+```
+
+Note: Rust `#[serde(rename_all = "camelCase")]` on structs ensures field names match TypeScript conventions (e.g., `owner_name` → `ownerName`).
 
 ---
 
@@ -368,7 +481,21 @@ interface AppState {
 
 **PixelBadge**: Capsule shape, semantic colors (cyan=targets, green=keys, magenta=state).
 
+**PixelToggle**: Checkbox/switch control for modifier keys and boolean options. Accent color when active, `bg-tertiary` when inactive. Smooth 120ms slide transition.
+
+**PixelDropdown**: Styled select for key name selection. `bg-secondary` background, accent border on focus, dropdown menu with hover highlight.
+
+**PixelInput**: Styled text input for text content and interval values. `bg-primary` background, `border` bottom border, accent color on focus.
+
+**SegmentButton**: KEY/TXT/CMB mode switcher on each step card. Horizontal button group with active segment highlighted in accent color.
+
+**IntervalProgressBar**: Animated segmented LED-style progress bar for send interval visualization. Segments fill left-to-right during interval countdown.
+
+**RepeatModeStrip**: Toggle between infinite loop and N-repeat with quick-pick preset buttons (1/3/5/10/50/100).
+
 **PixelDivider**: 1px `border` color separator.
+
+**FlowLayout**: CSS `display: flex; flex-wrap: wrap; gap: 4px` for sequence preview chips and selected target tags.
 
 ### 4-Step Workflow Pages
 
@@ -381,7 +508,7 @@ interface AppState {
 
 ### Overall Layout
 
-- **Left sidebar** (200px): Step circles with badges, progress dots, sequence mini-preview, current send state
+- **Left sidebar** (120px): Step circles with badges, progress dots, sequence mini-preview, current send state
 - **Main content**: Active step page
 - **Bottom StatusBar**: Fixed, shows permission status / target label / send count / interval / state
 - **TitleBar**: Custom (no native decorations), app branding, target/key count badges, version
@@ -409,12 +536,30 @@ listen('tapir://targets-invalidated', (e) => handleInvalidTargets(e.payload))
 
 ### Entitlements
 
+**Primary path (CGEvent.post — validated in P0):**
 ```xml
 <dict>
     <key>com.apple.security.app-sandbox</key>
     <true/>
-    <key>com.apple.security.network.client</key>
+</dict>
+```
+
+**Fallback path (AppleScript bridge — if CGEvent blocked):**
+```xml
+<dict>
+    <key>com.apple.security.app-sandbox</key>
     <true/>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+```
+Note: AppleScript path also requires `NSAppleEventsUsageDescription` in Info.plist and per-target-app scripting definitions.
+
+**Last resort (Developer ID, no sandbox):**
+```xml
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
 </dict>
 ```
 
@@ -448,17 +593,49 @@ listen('tapir://targets-invalidated', (e) => handleInvalidTargets(e.payload))
 
 **Current (SwiftUI, no sandbox)**: `CGEvent.postToPid(pid)` — sends directly to background process.
 
-**New (Rust, sandboxed)**:
+The sandbox constraint is the single biggest architectural risk. P0 must validate which path works before building further. The code in `core/key_sender.rs` should abstract over the sending backend so the rest of the system is unaffected by which path is chosen.
+
+### Path A: CGEvent.post to HID (preferred)
+
 1. `NSRunningApplication(pid).activate(options: .activateIgnoringOtherApps)` — bring target to front
 2. Short delay (50ms) for window to activate
 3. `CGEvent.post(tap: .cghidEventTap)` — send to HID stream (frontmost receives)
 4. For multi-target: cycle through targets, activating each before sending
 
-**Behavioral difference**: Target window must be frontmost to receive events. Multi-target sends involve visible window switching.
+**Behavioral difference**: Target window must be frontmost. Multi-target sends involve visible window switching.
 
-**Fallback if CGEvent.post blocked in sandbox**:
-1. AppleScript bridge: `osascript -e 'tell application "X" to keystroke "Y"'` (needs `com.apple.security.automation.apple-events` entitlement)
-2. Abandon App Store, use Developer ID notarized distribution
+**Risk**: `CGEvent.post(.cghidEventTap)` may be blocked by sandbox even with Accessibility permission granted. The HID event tap is the same CGEvent API family and Apple may restrict it. P0 PoC must test this in a sandboxed `.app` bundle (not just `cargo run`).
+
+### Path B: AppleScript Bridge (fallback)
+
+If CGEvent.post is blocked in sandbox:
+
+1. Use `NSAppleScript` to execute: `tell application "X" to keystroke "Y"`
+2. Requires `com.apple.security.automation.apple-events` entitlement
+3. Requires `NSAppleEventsUsageDescription` in Info.plist
+4. Each target app must be accessible via AppleScript (most are, but some sandboxed apps may block)
+5. Timing is less precise than CGEvent — AppleScript has ~50ms overhead per command
+
+**Limitations**: No raw CGKeyCode control, limited modifier combinations, per-app permission prompts on first use.
+
+### Path C: Developer ID Distribution (last resort)
+
+If both paths fail in sandbox:
+
+1. Abandon App Store, distribute via Developer ID signing + notarization
+2. No sandbox required — use `CGEvent.postToPid()` directly (same as current SwiftUI version)
+3. Distribute via `.dmg` on website
+
+### P0 PoC Test Plan
+
+1. Create minimal Tauri v2 app with sandbox enabled
+2. Request Accessibility permission
+3. Test `CGEvent.post(.cghidEventTap)` sending a keystroke to TextEdit
+4. If works → Path A confirmed, proceed with full implementation
+5. If blocked → test AppleScript bridge (Path B)
+6. If both fail → fall back to Path C (Developer ID)
+
+**Critical**: P0 must test in a properly signed and sandboxed `.app` bundle, not a debug build. Sandbox restrictions behave differently in release vs debug.
 
 ---
 
