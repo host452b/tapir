@@ -85,7 +85,11 @@ jobs:
 
             ### Install
             1. Download `.dmg`, open it, drag `Tapir.app` to Applications
-            2. On first launch: System Settings → Privacy & Security → Accessibility → enable Tapir
+            2. **Important:** This build is not code-signed. macOS may show "damaged" or "unidentified developer". Run this in Terminal before opening:
+               ```
+               xattr -cr /Applications/Tapir.app
+               ```
+            3. On first launch: System Settings → Privacy & Security → Accessibility → enable Tapir
           files: |
             Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.dmg
             Tapir-${{ steps.version.outputs.tag }}-macOS-arm64.zip
