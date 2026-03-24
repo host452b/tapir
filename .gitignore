@@ -1,58 +1,66 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
+# ── OS ──────────────────────────────────────────────────────────────
 .DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+Thumbs.db
 
-# IntelliJ related
+# ── Editors ─────────────────────────────────────────────────────────
+*.swp
+*.swo
+*~
+.idea/
 *.iml
 *.ipr
 *.iws
-.idea/
-
-# VS Code
 .vscode/
+.cursor/
+.claude/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-pubspec.lock
+# ── Node ────────────────────────────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
 
-# macOS Flutter ephemeral files (contain local paths)
-macos/Flutter/ephemeral/
+# ── Rust / Cargo ────────────────────────────────────────────────────
+src-tauri/target/
+**/*.rs.bk
 
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-# macOS build artifacts
-macos/Flutter/GeneratedPluginRegistrant.swift
-
-# Xcode user data (keep Runner.xcworkspace for CI builds)
+# ── Xcode (legacy SwiftUI reference) ───────────────────────────────
 *.xcuserdata
 xcuserdata/
+DerivedData/
+*.xcscmblueprint
+*.xccheckout
+.build/
+.buildlog/
+.swiftpm/
 
-# Cursor / editor project files
-.cursor/
+# ── Build artifacts ─────────────────────────────────────────────────
+build/
+*.dmg
+*.pkg
+*.app
+
+# ── Signing & provisioning (NEVER commit) ──────────────────────────
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+embedded.provisionprofile
+**/signing/
+*.keychain-db
+
+# ── Environment & secrets ──────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Python (icon generation scripts) ───────────────────────────────
+*.pyc
+__pycache__/
+*.egg-info/
+
+# ── Misc ────────────────────────────────────────────────────────────
+*.log
+*.class
+.atom/
+.history
+.svn/

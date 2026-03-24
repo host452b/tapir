@@ -1,190 +1,159 @@
 # Tapir
 
-A macOS desktop tool that sends automated keyboard events to any target application window. Built with Flutter and native Swift, using the macOS CGEvent API to post key events directly to a specific process by PID.
+A macOS keyboard automation tool that sends automated key events to any target application. Built with Tauri v2 (Rust) + React + TypeScript, using the CGEvent API to post events via the HID event tap.
 
 > **Tapir** — a cute animal whose name starts with "tap", which is exactly what this tool does: tapping keys for you.
 
 ## Features
 
 - **Window Scanner** — discover all visible windows with process hierarchy info (parent/child, sub-windows)
-- **Window Search** — filter window list by name or PID for quick targeting
+- **Window Search** — filter by app name, window title, or PID
 - **3 Step Modes**
   - **KEY** — single key press with optional modifiers (Cmd / Ctrl / Opt / Shift)
   - **TEXT** — type a string character by character, optionally press Enter
-  - **COMBO** — prefix key → text → suffix key (e.g. Tab → "hello" → Enter)
+  - **COMBO** — prefix key -> text -> suffix key (e.g. Tab -> "hello" -> Enter)
 - **Sequence Builder** — chain multiple steps, drag-to-reorder, duplicate, remove
-- **Repeat Mode** — infinite loop or finite N-cycle mode with quick-pick presets and auto-stop
-- **Interval Control** — configurable delay between steps (100ms – 10,000,000ms)
+- **Repeat Mode** — infinite loop or finite N-cycle with quick-pick presets
+- **Interval Control** — configurable delay between steps (100ms - 10,000,000ms)
 - **Live Progress** — animated LED progress bar, send counter, cycle tracker
 - **Event Log** — timestamped log of every key event, state change, and error
 - **Accessibility Management** — built-in permission check and grant flow
 
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Rust, Tauri v2 |
+| Frontend | React 18, TypeScript, Zustand |
+| Build | Vite, Cargo |
+| macOS APIs | CGEvent (FFI), CGWindowList, AXIsProcessTrusted |
+| Theme | Flexoki Light, Menlo monospace |
+| Target | macOS 14.0+ (Sonoma), App Store sandbox compatible |
+
 ## Prerequisites
 
-- **macOS** 12.0 or later
-- **Flutter SDK** 3.9.2+ (stable channel)
-- **Xcode** 15.0+ with Command Line Tools installed
+- macOS 14.0+
+- Rust toolchain (`rustup`, stable)
+- Node.js 18+ & npm
+- Xcode Command Line Tools (`xcode-select --install`)
 
-Verify your environment:
-
-```bash
-flutter doctor
-```
-
-## Build & Run (Debug)
+## Quick Start
 
 ```bash
-# clone the repo
-git clone <repo-url> && cd tapir
+# Install dependencies
+npm install
 
-flutter clean
-# install dependencies
-flutter pub get
-
-# run in debug mode (launches the app directly)
-flutter run -d macos
+# Development with hot reload
+npm run tauri dev
 ```
 
-The debug build enables hot-reload and the Dart DevTools debugger.
-
-## Build for Release
+## Build
 
 ```bash
-# compile optimized release binary
-flutter build macos --release
+# Debug build
+npm run build:debug
+
+# Release build (.app + .dmg)
+npm run build:release
+
+# Mac App Store build
+npm run build:mas
 ```
 
-The output is located at:
+See [docs/build_release.md](docs/build_release.md) for full build guide including code signing, notarization, and App Store submission.
 
-```
-build/macos/Build/Products/Release/Tapir.app
-```
-
-## Package as DMG
-
-To distribute as a `.dmg` disk image:
+## Clean
 
 ```bash
-# 1. build release first
-flutter build macos --release
-
-# 2. create a DMG using hdiutil
-hdiutil create -volname "Tapir" \
-  -srcfolder build/macos/Build/Products/Release/Tapir.app \
-  -ov -format UDZO \
-  Tapir.dmg
+npm run clean            # Remove ALL artifacts
+npm run clean:frontend   # Remove node_modules + dist
+npm run clean:rust       # Remove src-tauri/target
+npm run clean:release    # Remove release bundles only
 ```
-
-This produces `Tapir.dmg` in the project root. Users can open it and drag `Tapir.app` to their Applications folder.
-
-## Install
-
-### From Release Build
-
-1. Copy `Tapir.app` from `build/macos/Build/Products/Release/` to `/Applications/`
-2. On first launch, macOS may block the app — go to **System Settings → Privacy & Security** and click **Open Anyway**
-3. Grant **Accessibility** permission when prompted (required for sending key events to other apps)
-
-### From DMG
-
-1. Open `Tapir.dmg`
-2. Drag `Tapir.app` into `Applications`
-3. Launch and grant Accessibility permission
-
-### Accessibility Permission
-
-Tapir requires macOS Accessibility access to post CGEvent key events to other processes.
-
-- The app will prompt automatically on first launch
-- You can also grant manually: **System Settings → Privacy & Security → Accessibility** → toggle Tapir on
-- If permission doesn't take effect after granting, run:
-  ```bash
-  tccutil reset Accessibility
-  ```
-  Then restart the app and re-grant.
 
 ## Usage
 
-Tapir has 4 tabs accessed via the left sidebar:
+Tapir uses a guided 4-step workflow:
 
-### 1. TARGET — Select Target Window
+### Step 0: SYSTEM — Permissions
+
+- Check and grant Accessibility permission
+- Required for sending key events to other apps
+
+### Step 1: TARGET — Select Windows
 
 - Click **SCAN** to discover all visible windows
-- Use the **search bar** to filter by app name, window title, or PID
-- Click a window row to select it as the target
-- A **SELECTED** badge confirms your selection; click the **×** button or **DESELECT** to clear
-- A next-step hint appears after selection to guide you to the KEYS tab
+- Search and filter, click to multi-select targets
+- Selected windows receive key events when sending
 
-### 2. KEYS — Configure Key Sequence
+### Step 2: KEYS — Configure Sequence
 
-- Click **KEY** / **TEXT** / **COMBO** to add a step:
-  - **KEY** — pick a key from the dropdown, toggle modifiers (Cmd/Ctrl/Opt/Shift)
-  - **TEXT** — type a string, optionally append Enter
-  - **COMBO** — set PREFIX key → text → SUFFIX key (great for chat automation)
-- Use the **3-segment selector** (KEY / TXT / CMB) on any step to switch its mode directly
-- Use **drag handle** (≡) or **arrow buttons** (▲▼) to reorder — all buttons have tooltips on hover
-- Use the **duplicate button** (⎘) to clone a step
-- Use the **× button** to delete
-- Adjust the **INTERVAL** between steps using the +/- buttons or direct input
-- Invalid interval values flash a red border for feedback
+- Add **KEY** / **TEXT** / **COMBO** steps
+- Configure modifiers, text content, prefix/suffix keys
+- Drag to reorder, duplicate, or delete steps
+- Set the interval between steps
 
-### 3. CONTROL — Start / Monitor / Stop
+### Step 3: CONTROL — Send & Monitor
 
-- Set **REPEAT MODE** using the segment selector: **∞ LOOP** (infinite) or **N× REPEAT** (finite cycles)
-- For finite mode, use quick-pick buttons (1/3/5/10/50/100) or type a custom count
-- Click **▶ START** to begin sending
-- Monitor the **LED progress bar**, **send count**, and **cycle progress**
-- Use **PAUSE** to temporarily halt, **▶ RESUME** to continue
-- Click **STOP** to terminate and reset
-- The **EVENT LOG** shows timestamped entries — toggle **AUTO** scroll and use **CLEAR** to reset
-
-### 4. SYSTEM — Permissions & Info
-
-- Check Accessibility permission status
-- Click **GRANT** to open System Settings
-- Click **CHECK** to re-verify
-- Expand **TROUBLESHOOTING** for common fixes
+- Choose repeat mode: infinite loop or N cycles
+- **START** / **PAUSE** / **RESUME** / **STOP**
+- Watch the event log and progress indicators
 
 ## Project Structure
 
 ```
-lib/
-├── main.dart                   # app entry point
-├── pages/
-│   └── home_page.dart          # main page with sidebar navigation
+src-tauri/src/
+├── main.rs                    # Tauri entry, command registration
+├── core/
+│   ├── key_codes.rs           # macOS CGKeyCode mapping (72 keys)
+│   ├── key_sender.rs          # CGEvent synthesis & HID posting
+│   ├── window_scanner.rs      # CGWindowList + sysctl process tree
+│   ├── accessibility.rs       # AXIsProcessTrusted FFI
+│   └── process.rs             # Process alive validation
 ├── models/
-│   ├── key_step.dart           # step model (key / text / combo modes)
-│   └── window_info.dart        # window info with process hierarchy
-├── services/
-│   ├── key_sender_service.dart # send loop, repeat count, state machine
-│   └── native_bridge.dart      # method channel to Swift native layer
-├── widgets/
-│   ├── window_selector.dart    # window list with search/filter
-│   ├── key_config_panel.dart   # step editor, interval, drag-reorder
-│   ├── send_control_panel.dart # start/pause/stop, progress, readout
-│   ├── event_log.dart          # scrollable timestamped log
-│   └── permission_banner.dart  # accessibility permission UI
-├── constants/
-│   └── key_codes.dart          # macOS virtual key code mapping
-└── theme/
-    └── retro_theme.dart        # retro-futurism color palette & widgets
+│   ├── key_step.rs            # KeyStep, StepMode
+│   ├── window_info.rs         # WindowInfo with hierarchy
+│   ├── log_entry.rs           # LogEntry, SendingState, SenderStatus
+│   └── error.rs               # TapirError enum
+├── state/
+│   └── sender_state.rs        # SenderManager state machine
+└── commands/
+    ├── accessibility.rs       # Permission IPC commands
+    ├── window.rs              # Scan/validate IPC commands
+    └── sender.rs              # Send control IPC commands
 
-macos/Runner/
-├── KeySenderPlugin.swift       # native CGEvent sending & window scanning
-├── MainFlutterWindow.swift     # plugin registration & window setup
-├── AppDelegate.swift           # app lifecycle
-├── DebugProfile.entitlements   # sandbox disabled + JIT for debug
-└── Release.entitlements        # sandbox disabled for release
+src/
+├── App.tsx                    # Layout + step routing
+├── components/
+│   ├── TitleBar.tsx           # Custom title bar
+│   ├── Sidebar.tsx            # Step navigation
+│   ├── StatusBar.tsx          # Footer status
+│   ├── SystemView.tsx         # Step 0: permissions
+│   ├── WindowSelector.tsx     # Step 1: target selection
+│   ├── KeyConfig.tsx          # Step 2: sequence builder
+│   ├── SendControl.tsx        # Step 3: send & monitor
+│   ├── EventLog.tsx           # Timestamped event log
+│   └── ui/                    # Pixel UI atom components
+├── hooks/
+│   ├── useAppState.ts         # Zustand store
+│   └── useTauriCommand.ts     # Tauri IPC wrappers
+├── theme/
+│   ├── flexoki.ts             # Color palette
+│   └── global.css             # CSS variables
+└── types/
+    └── models.ts              # TypeScript type definitions
 ```
 
 ## Technical Notes
 
-- **App Sandbox is disabled** — required for `CGEvent.postToPid()` to work across processes
-- **CGEvent API** — key events are synthesized using `CGEvent(keyboardEventSource:virtualKey:keyDown:)` and posted via `postToPid()`
-- **Text input** — characters are typed using `keyboardSetUnicodeString()` on dummy key events
-- **Window scanning** — uses `CGWindowListCopyWindowInfo` with on-screen-only filter
-- **Process tree** — built via `sysctl` KERN_PROC queries, single-pass child map construction
-- **Key dispatch** — runs on `DispatchQueue.global(qos: .userInitiated)` to avoid blocking the Flutter main thread
+- **App Sandbox enabled** — compatible with Mac App Store distribution
+- **CGEvent.post(HID)** — key events posted to the HID event tap (frontmost window receives)
+- **Window activation** — `NSRunningApplication.activate()` brings target to foreground before sending
+- **Text input** — characters typed via `CGEventKeyboardSetUnicodeString` on virtual key events
+- **Window scanning** — two-pass `CGWindowListCopyWindowInfo` (all + on-screen) with layer-0 filter
+- **Process tree** — single-pass `sysctl(KERN_PROC_ALL)` builds parent-child hierarchy
+- **State machine** — tokio-based send/validation loops with `CancellationToken` + `Notify`
+- **IPC** — 10 Tauri commands + 3 event channels (log, state-change, targets-invalidated)
 
 ## License
 

@@ -1,0 +1,94 @@
+/* Flexoki Light — global CSS variables and resets */
+
+:root {
+  --bg-primary:    #FFFCF0;
+  --bg-secondary:  #F2F0E5;
+  --bg-tertiary:   #E6E4D9;
+  --bg-active:     #DAD8CE;
+
+  --text-primary:  #100F0F;
+  --text-secondary:#6F6E69;
+  --text-dim:      #878580;
+  --text-muted:    #B7B5AC;
+
+  --border:        #E6E4D9;
+  --border-light:  #F2F0E5;
+
+  --red:     #AF3029;    --red-light:     #D14D41;
+  --orange:  #BC5215;    --orange-light:  #DA702C;
+  --yellow:  #AD8301;    --yellow-light:  #D0A215;
+  --green:   #66800B;    --green-light:   #879A39;
+  --cyan:    #24837B;    --cyan-light:    #3AA99F;
+  --blue:    #205EA6;    --blue-light:    #4385BE;
+  --purple:  #5E409D;    --purple-light:  #8B7EC8;
+  --magenta: #A02F6F;    --magenta-light: #CE5D97;
+
+  --accent:   var(--cyan);
+  --success:  var(--green);
+  --warning:  var(--orange);
+  --error:    var(--red);
+  --info:     var(--blue);
+
+  --font-mono: 'Menlo', 'SF Mono', monospace;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --shadow-panel:  0 1px 3px rgba(16,15,15,0.08);
+  --shadow-button: 0 1px 2px rgba(16,15,15,0.12);
+}
+
+/* ── Body reset ─────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+/* ── Scrollbar styling ──────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* ── Focus outline ──────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Input / textarea reset ─────────────────────────────────────────── */
+
+input, textarea, select, button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
