@@ -159,9 +159,9 @@ pub async fn send_combo(pid: i32, text: &str, prefix_key_code: Option<u16>, suff
 3. Optionally switch back to Tapir window after sequence completes
 
 **Timing (matches existing SwiftUI implementation)**:
-- `send_key`: 5ms keyDown-to-keyUp delay
+- `send_key`: 10ms keyDown-to-keyUp delay (same for prefix/suffix keys in combo)
 - `send_text`: 5ms keyDown-to-keyUp + 8ms inter-character delay; optional Enter at end
-- `send_combo`: 30ms post-prefix delay → 5ms+8ms per character → 20ms pre-suffix delay
+- `send_combo`: prefix key (10ms hold) → 30ms delay → 5ms+8ms per character → 20ms delay → suffix key (10ms hold)
 - Step interval: user-configurable (100ms - 10,000,000ms)
 
 ### core/window_scanner.rs — Window Discovery
@@ -170,10 +170,13 @@ pub async fn send_combo(pid: i32, text: &str, prefix_key_code: Option<u16>, suff
 pub fn scan_windows() -> Result<Vec<WindowInfo>>
 ```
 
-- `CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID)` for all windows
+- **Two-pass window scan**:
+  1. `CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID)` — all windows minus desktop chrome
+  2. `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)` — on-screen only, build ID set for `is_on_screen` flag
 - Filter to `kCGWindowLayer == 0` (normal windows only, excludes menu bar, overlays)
 - Single-pass `sysctl(KERN_PROC_ALL)` to build process parent-child tree
 - Filters out Tapir's own PID and desktop elements (WindowServer, Dock)
+- Sets `is_on_screen` by checking window ID membership in the on-screen set
 - Returns `Vec<WindowInfo>` with hierarchy: parent PID, parent windowed PID, child count, sub-window count
 
 ### core/accessibility.rs — Permission Management
@@ -197,7 +200,7 @@ pub fn is_window_valid(window_id: u32, pid: i32) -> bool  // CGWindowList check,
 
 ```rust
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum TapirError {
     NoPermission,
     EventCreationFailed(String),
@@ -211,7 +214,7 @@ impl std::fmt::Display for TapirError { ... }
 impl std::error::Error for TapirError {}
 ```
 
-All Tauri commands return `Result<T, TapirError>`. Tauri serializes errors as rejected promises on the frontend. Frontend catches via `invoke(...).catch(err => ...)` where `err` is the `TapirError` variant.
+All Tauri commands return `Result<T, TapirError>`. To propagate structured errors to the frontend, `TapirError` implements `Into<tauri::ipc::InvokeError>` via JSON serialization. The `#[serde(tag = "type")]` attribute produces internally-tagged JSON like `{"type": "noPermission"}` or `{"type": "eventCreationFailed", "message": "..."}`, matching the TypeScript discriminated union. Frontend catches via `invoke(...).catch(err => ...)` where `err` is the parsed `TapirError` object.
 
 ### core/key_codes.rs — macOS CGKeyCode Mapping
 
@@ -502,13 +505,13 @@ interface AppState {
 | Step | Component | Layout |
 |------|-----------|--------|
 | 0 Permission | `SystemView` | Centered card: status indicator + grant button + instructions |
-| 1 Target | `WindowSelector` | Top search bar + scan button, scrollable window list below |
-| 2 Keys | `KeyConfig` | Top sequence preview flow, step card list with drag-to-reorder |
-| 3 Control | `SendControl` | Large state display + counter + progress bar + buttons, EventLog below |
+| 1 Target | `WindowSelector` | Top search bar (filters by owner name/window name, case-insensitive substring, real-time) + scan button (user-initiated, results stored in `scannedWindows` until next scan), scrollable window list below |
+| 2 Keys | `KeyConfig` | Top sequence preview flow (FlowLayout chips), step card list with drag-to-reorder |
+| 3 Control | `SendControl` | Large state display + counter + IntervalProgressBar + buttons, EventLog below (auto-scroll pinned to bottom on new entries, PixelToggle to disable, default: on) |
 
 ### Overall Layout
 
-- **Left sidebar** (120px): Step circles with badges, progress dots, sequence mini-preview, current send state
+- **Left sidebar** (120px): Step circles with badges, progress dots, sequence mini-preview, current send state. Users can click any step to navigate; forward navigation gated by prerequisites (e.g., can't go to Step 2 without targets selected). Back navigation always allowed.
 - **Main content**: Active step page
 - **Bottom StatusBar**: Fixed, shows permission status / target label / send count / interval / state
 - **TitleBar**: Custom (no native decorations), app branding, target/key count badges, version
